@@ -119,24 +119,53 @@ INT_DIRECTOR:
 CHECK_INTC:
 @ base address for the INTC
 	LDR R0,=0x48200000
-	LDR R2, [R0, #0xF8]		@ read into R2 from the EA of base address + INTC PENDING IRQ3 register offset		
-	TST R2, #0x4				@ test R2 against unmask
+	LDR R2, [R0, #0xF8]		@ read into R2 from the EA of base address + INTC PENDING IRQ3 register offset	
+		
+	TST R2, #0x4			@ test R2 against unmask
 	BNE CHECK_GPIO			@ go to check button if so
-	BEQ	PASS_ON				@ else go to pass on
+	BEQ	CHECK_TIMER			@ else go to check timer
 CHECK_GPIO:	
 	LDR R2, [R11, #0x2C]	@ check IRQ
 	TST R2, #0x20000000		@ test it is equal
 	BNE BUTTON_SVC			@ if so, go to button service
 	B PASS_ON				@ else go to pass on
+CHECK_TIMER:
+	LDR R1,=0x482000D8		@ Address of INTC PENDING_IRQ2 register
+	LDR R0, [R1]			@ read value
+	TST R0,#0x10			@ check if interrupt from timer 2
+	BEQ PASS_ON				@ no return, yes check for overflow
+	BNE OVERFLOW_CHECK
+OVERFLOW_CHECK:
+	LDR R1,=0x48040028		@ address of timer2 irqstatus register
+	LDR R0, [R1]			@ read value
+	TST R0, #0x2			@ check bit 1
+	BNE TOGGLE_LEDS			@ if overflowed, go toggle LEDs
+	B PASS_ON
 PASS_ON:
+	LDR R0, = 0x48200048	@ address of INTC_CONTROL register
+	MOV R1, #0x01			@ value to clear bit 0
+	STR R1, [R0]			@ write to INTC_CONTROL register
 	LDMFD SP!, {R0-R3, LR}	@ restore registers
 	SUBS PC, LR, #4			@ Pass execution to blinking loop	
 BUTTON_SVC:
-	@ turn off IRQ request
+@ timer stuff
+	MOV R2, #0x03			@ Load value to auto reload timer and start
+	LDR R1, =0x48040038		@ address of timer2 TCLR register
+	STR R2, [R1]
+@ turn off IRQ request
 	MOV R2, #0x20000000		@ turn off ringer value
 	STR R2, [R11, #0x2C]	@ ringer off value put into GPIO1_IRQSTATUS
 	MOV R1, #0x01			@ to clear bit 0
 	STR R1, [R0, #0x48]		@ ringer off value write to INTC_control
+@ LED stuff
+	LDR R1, =0x4804C13C
+	LDR R2, [R11]
+	TST R10, #0x01			@ test if LEDs blinking is set right now
+	BNE TURN_OFF			@ if so, turn blinking LEDs off
+	BEQ TURN_ON				@ and go to pass on
+TOGGLE_LEDS:
+	MOV R2, #0x2			@ value to reset overflow request
+	STR R2, [R1]			@ store value into address of timer irqstatus register
 	TST R10, #0x01			@ test if LEDs blinking is set right now
 	BNE TURN_OFF			@ if so, turn blinking LEDs off
 	BEQ TURN_ON				@ and go to pass on
@@ -146,6 +175,30 @@ TURN_OFF:
 TURN_ON:
 	MOV R10, #0x01			@ set flag bit to show LEDs are off
 	B PASS_ON 
+
+
+
+
+@BUTTON_SVC:
+@turn off IRQ request for GPIO1
+	@LDR R1,=0x4804C02C		@GPIO1_IRQSTATUS_0 address
+	@MOV R2,#0x40000000		@turn off GPIO1_IRQSTATUS at pin 30 by writing there 1
+	@STR R2,[R1]				@Writing value to Turn IRQ off GPIO1_IRQ_RAW_0
+@check if GPIO1_DATAOUT has LEDs is lit
+	@LDR R1,=0x4804C13C		@GPIO1 0x4804C000 with offset 13C dataout
+	@@@@LDR R2,[R1]			@Load value from GPIO_DATAOUT to check
+	@@@@TST R2,#0x01E00000		@ test pin 21-24 on GPIO1
+@TESTING TIMER RIGHT HERE
+	@LDR R0,=0x48042038		@Address for Timer3 TCLR
+	@LDR R2,[R0]				@0x3 start and reload timer
+	@TST R2,#0x03			@check if timer is running and auto reload 
+	@BEQ LED_ON				@if z flag is clear (no led is lit) go LED_ON
+	@B LED_OFF				@if z flag is set (at least 1 led is lit) go LED_OFF
+
+
+
+
+
 
 
 
