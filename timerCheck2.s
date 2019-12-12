@@ -25,26 +25,26 @@ _start:
 	LDR R1, =0x48200000		@ new base address, for INTC_CONFIG
 	MOV R2, #0x2			@ reset INTC_CONFIG register
 	STR R2, [R1, #0x10]		@ write the value in to EA = base address
-	MOV R2, #0x80000000		@ unmask timer 7 at value intc int 95
-	STR R2, [R1, #0xC8]		@ write unmasking value in 
+	MOV R2, #0x10			@ unmasking value
+	STR R2, [R1, #0xC8]		@ write unmasking value in to EA of offset for MIR_CLEAR2 = base address + offset
 	MOV R2, #0x04			@ unmasking value
-	STR R2, [R1, #0xE8]		@ write unmasking value in
+	STR R2, [R1, #0xE8]		@ write unmasking value in to EA of offset for MIR_CLEAR3 = base address + offset
 	
 @ inititalize timer
-	MOV R0, #0x02
-	LDR R9, =0x44E0007C		@ address for CM_PER_timer 7_CLKCTRL
-	STR R0, [R9]			@ R0 contains #0x02
-	LDR R9, =0x44E00504		@ address for PRCMCLKSEL_TIMER7
-	STR R0, [R9] 			@ store R0 into PRCMCLKSEL_TIMER7
+	MOV R2, #0x2
+	LDR R9, =0x44E00080		@ address for CM_PER_timer 2_CLKCTRL
+	STR R2, [R9]			@ R2 contains #0x02
+	LDR R9, =0x44E00508		@ address for PRCMCLKSEL_TIMER2
+	STR R2, [R9] 			@ store R2 into PRCMCLKSEL_TIMER2
 	
-	LDR R8, =0x4804A000		@ base address for timer 7 registers
-	MOV R2, #0x1			@ value to reset timer 7
+	LDR R8, =0x48040000		@ base address for timer 2 registers
+	MOV R2, #0x1			@ value to reset timer 2
 	STR R2, [R8, #0x10]		@ write to CFG register
 	MOV R2, #0x2			@ Value to enable overflow interrupt
 	STR R2, [R8, #0x2C]		@ write to IRQ ENABLE SET
 	LDR R2, =0xFFFFC000		@ count value to 1/2 second
 	STR R2, [R8, #0x40]		@ TLDR load register for reload value
-	STR R2, [R8, #0x3C]		@ write to timer 7 TCRR count register
+	STR R2, [R8, #0x3C]		@ write to timer 2 TCRR count register
 	
 @ CPSR enable for IRQ
 	MRS R3, CPSR			@ copy CPSR to R3
@@ -55,11 +55,12 @@ _start:
 	MOV R10, #0x01			@  for if LEDs blinking are on or not, 1 is on, 0 is off
 	MOV R7, #0x01200000		@ this value will hold whatever LEDs are on right now
 	@ if LEDs are on the second time the button has been pressed then I need to turn them off instead
-	
+
 @ start timer
 	MOV R2, #0x03			@ Load value to auto reload timer and start
-	STR R2, [R8, #0x38]
-
+	LDR R1, =0x48040038		@ address of timer2 TCLR register
+	STR R2, [R1]
+	
 @ From here, loop blinking LEDs 1 and 2 and then LEDS 3 and 0, and so on
 
 @ this first tests if the flag bit is set
@@ -89,7 +90,7 @@ CHECK_INTC:
 CHECK_TIMER:
 	LDR R1, =0x482000D8		@ Address of INTC PENDING_IRQ2 register
 	LDR R0, [R1]			@ read value
-	TST R0, #0x80000000			@ check if interrupt from timer
+	TST R0, #0x10			@ check if interrupt from timer 2
 	BEQ PASS_ON				@ no means return
 	BNE OVERFLOW_CHECK		@ yes means check for overflow
 OVERFLOW_CHECK:
