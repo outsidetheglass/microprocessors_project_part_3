@@ -146,25 +146,6 @@ PASS_ON:
 
 
 
-@BUTTON_SVC:
-@turn off IRQ request for GPIO1
-	@LDR R1,=0x4804C02C		@GPIO1_IRQSTATUS_0 address
-	@MOV R2,#0x40000000		@turn off GPIO1_IRQSTATUS at pin 30 by writing there 1
-	@STR R2,[R1]				@Writing value to Turn IRQ off GPIO1_IRQ_RAW_0
-@check if GPIO1_DATAOUT has LEDs is lit
-	@LDR R1,=0x4804C13C		@GPIO1 0x4804C000 with offset 13C dataout
-	@@@@LDR R2,[R1]			@Load value from GPIO_DATAOUT to check
-	@@@@TST R2,#0x01E00000		@ test pin 21-24 on GPIO1
-@TESTING TIMER RIGHT HERE
-	@LDR R0,=0x48042038		@Address for Timer3 TCLR
-	@LDR R2,[R0]				@0x3 start and reload timer
-	@TST R2,#0x03			@check if timer is running and auto reload 
-	@BEQ LED_ON				@if z flag is clear (no led is lit) go LED_ON
-	@B LED_OFF				@if z flag is set (at least 1 led is lit) go LED_OFF
-
-
-
-
 
 
 
