@@ -15,10 +15,8 @@ _start:
 	STR R0, [R1]
 @ GPIO registers and their logic
 	LDR R11, =0x4804C000 	@ base address for GPIO1
-	MOV R4, #0x00C00000		@ high value for LEDs 2 and 1
-	STR R4, [R11, #0x190]	@ store LEDs 2 and 1 high value into EA = base address + CLEARDATAOUT offset 
-	ADD R5, R4, #0x00600000	@ value for increasing R4 to LEDs 3 and 0 high
-	STR R5, [R11, #0x194]	@ store LEDs 3 and 0 high value into base address + SETDATAOUT offset 
+	MOV R9, #0x01E00000		@ all USR LEDS high value 
+	STR R9, [R11, #0x190]	@ store LEDs high value into base address + CLEARDATAOUT offset
 @ GPIO1_OE logic for USR LEDS 0 through 3
 	LDR R6, =0xFE1FFFFF
 	STR R6, [R11, #0x134]
@@ -26,20 +24,21 @@ _start:
 	MOV R2,	#0x20000000
 	STR R2, [R11, #0x14C]	@ store high for pin 29 into EA = base address + FALLINGEDGE offset
 @ use IRQ, POINTER PEND 1
-	STR R2,[R11, #0x34]			@ enable pointer pend for GPIO1_29 pin
+	STR R2,[R11, #0x34]		@ enable pointer pend for GPIO1_29 pin
 @ initialize INTC
-	LDR R1, =0x48200010		@ new base address, for INTC_CONFIG
-	MOV R3, #0x2			@ reset INTC_CONFIG register
-	STR R3, [R1]			@ write the value in to EA = base address
+	LDR R1, =0x48200000		@ new base address, for INTC_CONFIG
+	MOV R2, #0x2			@ reset INTC_CONFIG register
+	STR R2, [R1, #0x10]		@ write the value in to EA = base address
+	MOV R2, #0x80000000		@ unmask timer 7 at value intc int 95
+	STR R2, [R1, #0xC8]		@ write unmasking value in 
 	MOV R2, #0x04			@ unmasking value
-	STR R2, [R1, #0xD8]		@ write unmasking value in to EA of offset for MIR_CLEAR3 = INTC_CONFIG + D8
-	MOV R2, #0x8			@ unmask timer 7 at value intc int 95
-	STR R2, [R1, #0xB8]		@ write unmasking value in to EA of offset for MIR_CLEAR2 = INTC_CONFIG + B8
+	STR R2, [R1, #0xE8]		@ write unmasking value in
 	
 @ inititalize timer
-	LDR R9, #0x44E0007C		@ address for CM_PER_timer 7_CLKCTRL
+	MOV R0, #0x02
+	LDR R9, =0x44E0007C		@ address for CM_PER_timer 7_CLKCTRL
 	STR R0, [R9]			@ R0 contains #0x02
-	LDR R9, #0x44E00504		@ address for PRCMCLKSEL_TIMER7
+	LDR R9, =0x44E00504		@ address for PRCMCLKSEL_TIMER7
 	STR R0, [R9] 			@ store R0 into PRCMCLKSEL_TIMER7
 	
 	LDR R8, =0x4804A000		@ base address for timer 7 registers
@@ -57,25 +56,14 @@ _start:
 	MSR CPSR_c, R3			@ write to CPSR	
 	
 @ flag bits
-	MOV R10, #0x01			@  for if LEDs blinking are on or not, 1 is on, 0 is off
-	MOV R7, #0x01200000		@ this value will hold whatever LEDs are on right now
-	@ if LEDs are on the second time the button has been pressed then I need to turn them off instead
+	MOV R10, #0x01			@ for if LEDs blinking are on or not, 1 is on, 0 is off, used for blinking procedures
+	MOV R6, #0x01200000		@ this value will hold whatever LEDs are on right now, used for blinking procedures
+	MOV R7, #0x00			@ when this value is 0x1 the LEDs should be blinking,
+							@ when 0x0 everything including timer should be off, used for button_svc procedure
 
-@ From here, loop blinking LEDs 1 and 2 and then LEDS 3 and 0, and so on
-
-@ this first tests if the flag bit is set
-
-@ if flag is set, then go into BLINK_30 and blink LEDs 3 and 0
-@ then delay 2 seconds with DELAY1
-@ then go to BLINK_21 and blink LEDs 2 and 1
-@ then use DELAY2 to delay another 2 seconds, then go back to BLINK_30
-@ repeat this until interrupted
-
-@ if flag is not set, then go to LEDS_OFF
-@ run a delay in DELAY3 to keep them off while waiting for an interrupt
 
 LOOP:
-	NOP	
+	NOP
 	B LOOP	
 
 @ IRQ for the button
@@ -93,28 +81,42 @@ CHECK_GPIO:
 	BNE BUTTON_SVC			@ if so, go to button service
 	BEQ PASS_ON				@ else go to pass on
 BUTTON_SVC:
-@ timer stuff
-	MOV R2, #0x03			@ Load value to auto reload timer and start
-	LDR R1, =0x48040038		@ address of timer2 TCLR register
-	STR R2, [R1]
+@ if timer is on turn it off and leds off
+@ if timer isn't on then turn on and and check leds
+
 @ turn off IRQ request
 	MOV R2, #0x20000000		@ turn off ringer value
 	STR R2, [R11, #0x2C]	@ ringer off value put into GPIO1_IRQSTATUS
 	MOV R1, #0x01			@ to clear bit 0
 	STR R1, [R0, #0x48]		@ ringer off value write to INTC_control
-@ go toggle LEDs
+	
+@ check to see if we need to turn everything off or not
+	TST R7, #0x1			@ test against if we should turn timers and LEDs off or not
+	BNE TIMER_OFF			@ if its a 0x1 then that means we need to turn everything off
+	MOV R7, #0x01			@ we're going to turn everything on now
+@ timer on
+	MOV R2, #0x03			@ Load value to auto reload timer and start
+	STR R2, [R8, #0x38]		@ address of timer TCLR register
+	
+@ toggle LED test
 	TST R10, #0x01			@ test if LEDs blinking is set right now
 	BNE TURN_OFF			@ if so, turn blinking LEDs off
 	BEQ TURN_ON				@ and go to pass on
+	
+TIMER_OFF:
+	MOV R7, #0x00			@ everything will be off now
+	MOV R2, #0x0			@ Load value to turn timer off
+	STR R2, [R8, #0x38]		@ address of timer TCLR register
+	B TURN_OFF				@ if so, turn blinking LEDs off
 CHECK_TIMER:
 	LDR R1, =0x482000D8		@ Address of INTC PENDING_IRQ2 register
 	LDR R0, [R1]			@ read value
-	TST R0, #0x10			@ check if interrupt from timer 2
+	TST R0, #0x80000000		@ check if interrupt from timer
 	BEQ PASS_ON				@ no means return
 	BNE OVERFLOW_CHECK		@ yes means check for overflow
 OVERFLOW_CHECK:
-	LDR R1,=0x48040028		@ address of timer2 irqstatus register
-	LDR R0, [R1]			@ read value
+	ADD R1, R8, #0x28		@ address of timer irqstatus register
+	LDR R0, [R1]			@ read timer 7 TCRR count register, EA = base address of DMtimer7 + IRQ status offset
 	TST R0, #0x2			@ check bit 1
 	BNE TOGGLE_LEDS			@ if overflowed, go toggle LEDs
 	B PASS_ON
@@ -123,7 +125,7 @@ TOGGLE_LEDS:
 	STR R2, [R1]			@ store value into address of timer irqstatus register
 	TST R10, #0x01			@ test if LEDs blinking is set right now
 	BNE TURN_OFF			@ if so, turn blinking LEDs off
-	BEQ TURN_ON				@ if not, turn them on
+	BEQ TURN_ON				@ and go to pass on
 TURN_OFF:
 	MOV R10, #0x00			@ set flag bit to show LEDs are off
 	MOV R9, #0x01E00000		@ all USR LEDS high value 
@@ -132,7 +134,7 @@ TURN_OFF:
 TURN_ON:
 	MOV R10, #0x01			@ set flag bit to show LEDs are on
 	MOV R9, #0x01E00000		@ all USR LEDS high value 
-	STR R9, [R11, #0x194]	@ store LEDs 3 and 0 high value into base address + SETDATAOUT offset 
+	STR R9, [R11, #0x194]	@ store LEDs high value into base address + SETDATAOUT offset 
 	B PASS_ON 
 PASS_ON:
 	LDR R0, = 0x48200048	@ address of INTC_CONTROL register
@@ -140,26 +142,6 @@ PASS_ON:
 	STR R1, [R0]			@ write to INTC_CONTROL register
 	LDMFD SP!, {R0-R3, LR}	@ restore registers
 	SUBS PC, LR, #4			@ Pass execution to blinking loop	
-
-
-
-
-@BUTTON_SVC:
-@turn off IRQ request for GPIO1
-	@LDR R1,=0x4804C02C		@GPIO1_IRQSTATUS_0 address
-	@MOV R2,#0x40000000		@turn off GPIO1_IRQSTATUS at pin 30 by writing there 1
-	@STR R2,[R1]				@Writing value to Turn IRQ off GPIO1_IRQ_RAW_0
-@check if GPIO1_DATAOUT has LEDs is lit
-	@LDR R1,=0x4804C13C		@GPIO1 0x4804C000 with offset 13C dataout
-	@@@@LDR R2,[R1]			@Load value from GPIO_DATAOUT to check
-	@@@@TST R2,#0x01E00000		@ test pin 21-24 on GPIO1
-@TESTING TIMER RIGHT HERE
-	@LDR R0,=0x48042038		@Address for Timer3 TCLR
-	@LDR R2,[R0]				@0x3 start and reload timer
-	@TST R2,#0x03			@check if timer is running and auto reload 
-	@BEQ LED_ON				@if z flag is clear (no led is lit) go LED_ON
-	@B LED_OFF				@if z flag is set (at least 1 led is lit) go LED_OFF
-
 
 
 
